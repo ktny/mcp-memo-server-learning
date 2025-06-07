@@ -7,6 +7,8 @@ import {
   ListToolsRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs';
@@ -29,6 +31,7 @@ const server = new Server(
     capabilities: {
       tools: {}, // ツール機能を有効化
       prompts: {}, // プロンプト機能を有効化
+      resources: {}, // リソース機能を有効化
     },
   }
 );
@@ -298,6 +301,80 @@ ${context}
         ErrorCode.MethodNotFound,
         `Unknown prompt: ${name}`
       );
+  }
+});
+
+// リソース一覧を返すハンドラー
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  try {
+    const memos = listMemoFiles();
+    const resources = memos.map((memo) => ({
+      uri: `memo://${memo.filename.replace('.txt', '')}`,
+      name: memo.title,
+      description: `メモ: ${memo.title}（作成日時: ${new Date(memo.createdAt).toLocaleString('ja-JP')}）`,
+      mimeType: 'text/plain',
+    }));
+
+    return {
+      resources,
+    };
+  } catch (error) {
+    console.error('Error listing resources:', error);
+    return {
+      resources: [],
+    };
+  }
+});
+
+// リソース読み取りハンドラー
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  try {
+    const { uri } = request.params;
+    
+    // URIの形式をチェック: memo://filename
+    const uriMatch = uri.match(/^memo:\/\/(.+)$/);
+    if (!uriMatch) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        `Invalid resource URI: ${uri}. Expected format: memo://filename`
+      );
+    }
+    
+    const filename = uriMatch[1] + '.txt';
+    const filepath = getMemoPath(filename);
+    
+    if (!fs.existsSync(filepath)) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        `Resource not found: ${uri}`
+      );
+    }
+    
+    const content = fs.readFileSync(filepath, 'utf-8');
+    const stats = fs.statSync(filepath);
+    
+    // ファイル名からタイトルを復元
+    const title = filename
+      .replace('.txt', '')
+      .replace(/_/g, ' ');
+    
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'text/plain',
+          text: content,
+        },
+      ],
+    };
+  } catch (error) {
+    if (error instanceof McpError) {
+      throw error;
+    }
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to read resource: ${error}`
+    );
   }
 });
 
