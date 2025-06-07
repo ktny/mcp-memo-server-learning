@@ -15,7 +15,7 @@ export interface MemoMetadata {
 // ファイル名を安全な形式に変換
 export function sanitizeFilename(title: string): string {
   return title
-    .replace(/[^\w\s-]/g, '') // 英数字、スペース、ハイフン以外を削除
+    .replace(/[<>:"/\\|?*]/g, '') // ファイル名に使えない文字を削除
     .replace(/\s+/g, '_') // スペースをアンダースコアに変換
     .toLowerCase()
     .slice(0, 50) // 最大50文字
