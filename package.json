@@ -1,0 +1,31 @@
+{
+  "name": "mcp-memo-server-learning",
+  "version": "1.0.0",
+  "description": "MCPサーバーの学習を目的としたプロジェクトです。シンプルなメモ管理機能を持つMCPサーバーを段階的に実装していきます。",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/ktny/mcp-memo-server-learning.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ktny/mcp-memo-server-learning/issues"
+  },
+  "homepage": "https://github.com/ktny/mcp-memo-server-learning#readme",
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  }
+}
