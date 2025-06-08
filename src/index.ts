@@ -19,6 +19,12 @@ import {
   listMemoFiles,
   searchMemos,
   findMemoByTitle,
+  createMemoWithMetadata,
+  getMemosByCategory,
+  getMemosByTag,
+  getAvailableCategories,
+  getAvailableTags,
+  parseMemoContent,
 } from './memo-utils.js';
 
 // サーバーインスタンスを作成
@@ -144,6 +150,77 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['query'],
+        },
+      },
+      {
+        name: 'create_memo_with_category',
+        description: 'カテゴリとタグ付きでメモを作成します',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'メモのタイトル',
+            },
+            content: {
+              type: 'string',
+              description: 'メモの内容',
+            },
+            category: {
+              type: 'string',
+              description: 'カテゴリ（オプション）',
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'タグの配列（オプション）',
+            },
+          },
+          required: ['title', 'content'],
+        },
+      },
+      {
+        name: 'list_memos_by_category',
+        description: 'カテゴリ別にメモを一覧表示します',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            category: {
+              type: 'string',
+              description: 'カテゴリ名',
+            },
+          },
+          required: ['category'],
+        },
+      },
+      {
+        name: 'list_memos_by_tag',
+        description: 'タグ別にメモを一覧表示します',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tag: {
+              type: 'string',
+              description: 'タグ名',
+            },
+          },
+          required: ['tag'],
+        },
+      },
+      {
+        name: 'list_categories',
+        description: '利用可能なカテゴリ一覧を取得します',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'list_tags',
+        description: '利用可能なタグ一覧を取得します',
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
       },
     ],
@@ -484,6 +561,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const date = new Date(memo.createdAt).toLocaleString('ja-JP');
           result += `📝 ${memo.title}\n`;
           result += `   作成日時: ${date}\n`;
+          if (memo.category) {
+            result += `   カテゴリ: ${memo.category}\n`;
+          }
+          if (memo.tags.length > 0) {
+            result += `   タグ: ${memo.tags.join(', ')}\n`;
+          }
           result += `   サイズ: ${memo.size} bytes\n\n`;
         }
         
@@ -525,12 +608,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         
         const filepath = getMemoPath(filename);
         const content = fs.readFileSync(filepath, 'utf-8');
+        const { frontMatter, body } = parseMemoContent(content);
+        
+        let displayText = `📝 ${title}\n`;
+        
+        if (frontMatter) {
+          if (frontMatter.category) {
+            displayText += `カテゴリ: ${frontMatter.category}\n`;
+          }
+          if (frontMatter.tags && frontMatter.tags.length > 0) {
+            displayText += `タグ: ${frontMatter.tags.join(', ')}\n`;
+          }
+          displayText += `作成日時: ${new Date(frontMatter.createdAt).toLocaleString('ja-JP')}\n`;
+          displayText += `更新日時: ${new Date(frontMatter.updatedAt).toLocaleString('ja-JP')}\n`;
+          displayText += '\n---\n\n';
+          displayText += body;
+        } else {
+          displayText += `\n${content}`;
+        }
         
         return {
           content: [
             {
               type: 'text',
-              text: `📝 ${title}\n\n${content}`,
+              text: displayText,
             },
           ],
         };
@@ -605,7 +706,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         for (const memo of memos) {
           const date = new Date(memo.createdAt).toLocaleString('ja-JP');
           result += `📝 ${memo.title}\n`;
-          result += `   作成日時: ${date}\n\n`;
+          result += `   作成日時: ${date}\n`;
+          if (memo.category) {
+            result += `   カテゴリ: ${memo.category}\n`;
+          }
+          if (memo.tags.length > 0) {
+            result += `   タグ: ${memo.tags.join(', ')}\n`;
+          }
+          result += '\n';
         }
         
         return {
@@ -622,6 +730,240 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `メモの検索に失敗しました: ${error}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case 'create_memo_with_category': {
+      try {
+        const { title, content, category, tags } = args as { 
+          title: string; 
+          content: string; 
+          category?: string; 
+          tags?: string[] 
+        };
+        
+        ensureMemosDirectory();
+        const filename = sanitizeFilename(title);
+        const filepath = getMemoPath(filename);
+        
+        // ファイルが既に存在する場合はエラー
+        if (fs.existsSync(filepath)) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `エラー: "${title}" というタイトルのメモは既に存在します。`,
+              },
+            ],
+          };
+        }
+        
+        // フロントマター付きメモを作成
+        const memoContent = createMemoWithMetadata(title, content, category, tags || []);
+        fs.writeFileSync(filepath, memoContent, 'utf-8');
+        
+        let resultMessage = `メモ "${title}" を作成しました。\nファイル: ${filename}`;
+        if (category) {
+          resultMessage += `\nカテゴリ: ${category}`;
+        }
+        if (tags && tags.length > 0) {
+          resultMessage += `\nタグ: ${tags.join(', ')}`;
+        }
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: resultMessage,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `メモの作成に失敗しました: ${error}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case 'list_memos_by_category': {
+      try {
+        const { category } = args as { category: string };
+        const memos = getMemosByCategory(category);
+        
+        if (memos.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `カテゴリ "${category}" のメモがありません。`,
+              },
+            ],
+          };
+        }
+        
+        let result = `カテゴリ "${category}" のメモ (${memos.length}件):\n\n`;
+        for (const memo of memos) {
+          const date = new Date(memo.createdAt).toLocaleString('ja-JP');
+          result += `📝 ${memo.title}\n`;
+          result += `   作成日時: ${date}\n`;
+          if (memo.tags.length > 0) {
+            result += `   タグ: ${memo.tags.join(', ')}\n`;
+          }
+          result += `   サイズ: ${memo.size} bytes\n\n`;
+        }
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `カテゴリ別メモ一覧の取得に失敗しました: ${error}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case 'list_memos_by_tag': {
+      try {
+        const { tag } = args as { tag: string };
+        const memos = getMemosByTag(tag);
+        
+        if (memos.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `タグ "${tag}" のメモがありません。`,
+              },
+            ],
+          };
+        }
+        
+        let result = `タグ "${tag}" のメモ (${memos.length}件):\n\n`;
+        for (const memo of memos) {
+          const date = new Date(memo.createdAt).toLocaleString('ja-JP');
+          result += `📝 ${memo.title}\n`;
+          result += `   作成日時: ${date}\n`;
+          if (memo.category) {
+            result += `   カテゴリ: ${memo.category}\n`;
+          }
+          result += `   タグ: ${memo.tags.join(', ')}\n`;
+          result += `   サイズ: ${memo.size} bytes\n\n`;
+        }
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `タグ別メモ一覧の取得に失敗しました: ${error}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case 'list_categories': {
+      try {
+        const categories = getAvailableCategories();
+        
+        if (categories.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'カテゴリが設定されているメモがありません。',
+              },
+            ],
+          };
+        }
+        
+        let result = `利用可能なカテゴリ (${categories.length}件):\n\n`;
+        for (const category of categories) {
+          const count = getMemosByCategory(category).length;
+          result += `📁 ${category} (${count}件のメモ)\n`;
+        }
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `カテゴリ一覧の取得に失敗しました: ${error}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case 'list_tags': {
+      try {
+        const tags = getAvailableTags();
+        
+        if (tags.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'タグが設定されているメモがありません。',
+              },
+            ],
+          };
+        }
+        
+        let result = `利用可能なタグ (${tags.length}件):\n\n`;
+        for (const tag of tags) {
+          const count = getMemosByTag(tag).length;
+          result += `🏷️ ${tag} (${count}件のメモ)\n`;
+        }
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `タグ一覧の取得に失敗しました: ${error}`,
             },
           ],
         };
